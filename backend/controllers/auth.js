@@ -2,19 +2,7 @@ const User = require('../models/user')
 const crypto = require('crypto')
 const sendEmail = require('../utils/sendEmail')
 const cloudinary = require('cloudinary')
-
-// sets the token cookie and returns the user
-const sendToken = (user, statusCode, res) => {
-    const token = user.getJwtToken()
-    user.password = undefined // never send the hash
-
-    const options = {
-        expires: new Date(Date.now() + process.env.COOKIE_EXPIRES_TIME * 24 * 60 * 60 * 1000),
-        httpOnly: true
-    }
-
-    res.status(statusCode).cookie('token', token, options).json({ success: true, token, user })
-}
+const sendToken = require('../utils/jwtToken')
 
 // POST /api/v1/register
 exports.registerUser = async (req, res) => {
@@ -180,5 +168,74 @@ exports.resetPassword = async (req, res) => {
         sendToken(user, 200, res)
     } catch (err) {
         res.status(400).json({ success: false, message: err.message })
+    }
+}
+
+// ---------------------------------------------------------------------
+// ADMIN
+// ---------------------------------------------------------------------
+
+// GET /api/v1/admin/users
+exports.allUsers = async (req, res) => {
+    try {
+        const users = await User.find()
+        res.status(200).json({ success: true, users })
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message })
+    }
+}
+
+// GET /api/v1/admin/user/:id
+exports.getUserDetails = async (req, res) => {
+    try {
+        const user = await User.findById(req.params.id)
+        if (!user) {
+            return res.status(404).json({ success: false, message: `User not found with id: ${req.params.id}` })
+        }
+        res.status(200).json({ success: true, user })
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message })
+    }
+}
+
+// PUT /api/v1/admin/user/:id
+exports.updateUser = async (req, res) => {
+    try {
+        const newUserData = {
+            name: req.body.name,
+            email: req.body.email,
+            role: req.body.role
+        }
+
+        const user = await User.findByIdAndUpdate(req.params.id, newUserData, {
+            new: true,
+            runValidators: true
+        })
+        if (!user) {
+            return res.status(404).json({ success: false, message: `User not found with id: ${req.params.id}` })
+        }
+        res.status(200).json({ success: true })
+    } catch (err) {
+        res.status(400).json({ success: false, message: err.message })
+    }
+}
+
+// DELETE /api/v1/admin/user/:id
+exports.deleteUser = async (req, res) => {
+    try {
+        const user = await User.findById(req.params.id)
+        if (!user) {
+            return res.status(404).json({ success: false, message: `User not found with id: ${req.params.id}` })
+        }
+
+        // remove the avatar from cloudinary too, if there is one
+        if (user.avatar?.public_id) {
+            await cloudinary.v2.uploader.destroy(user.avatar.public_id)
+        }
+
+        await User.findByIdAndDelete(req.params.id)
+        res.status(200).json({ success: true })
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message })
     }
 }
